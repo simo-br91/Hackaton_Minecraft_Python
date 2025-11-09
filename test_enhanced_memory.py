@@ -36,11 +36,19 @@ def record_combat_event(entity_name, damage, weapon="fist"):
         
         if "relationship" in data:
             rel = data["relationship"]
-            print(f"   Status: {rel['status']} (Trust: {rel['trust']}, Fear: {rel['fear']})")
-            print(f"   Should attack: {rel['should_attack']}")
-            print(f"   Should avoid: {rel['should_avoid']}")
+            # Use .get() with defaults
+            status = rel.get('status', 'unknown')
+            trust = rel.get('trust', 0)
+            fear = rel.get('fear', 0)
+            should_attack = rel.get('should_attack', False)
+            should_avoid = rel.get('should_avoid', False)
+            
+            print(f"   Status: {status} (Trust: {trust}, Fear: {fear})")
+            print(f"   Should attack: {should_attack}")
+            print(f"   Should avoid: {should_avoid}")
     else:
         print(f"❌ Failed to record event: {response.status_code}")
+        print(f"   Response: {response.text}")
 
 def record_gift(entity_name, item):
     """Simulate gift giving."""
@@ -62,9 +70,14 @@ def record_gift(entity_name, item):
         
         if "relationship" in data:
             rel = data["relationship"]
-            print(f"   Status: {rel['status']} (Trust: {rel['trust']}, Affection: {rel['affection']})")
+            # Use .get() with defaults to avoid KeyError
+            trust = rel.get('trust', 0)
+            affection = rel.get('affection', 0)
+            status = rel.get('status', 'unknown')
+            print(f"   Status: {status} (Trust: {trust}, Affection: {affection})")
     else:
         print(f"❌ Failed to record gift: {response.status_code}")
+        print(f"   Response: {response.text}")
 
 def chat_with_npc(player, message):
     """Chat with NPC and see contextual response."""
@@ -76,22 +89,33 @@ def chat_with_npc(player, message):
     
     print(f"\n💬 {player}: \"{message}\"")
     
-    response = requests.post(f"{BASE_URL}/api/npc_interact_enhanced", json=payload)
-    
-    if response.status_code == 200:
-        data = response.json()
-        action = data.get("action", {})
-        state = data.get("new_state", {})
+    try:
+        response = requests.post(f"{BASE_URL}/api/npc_interact_enhanced", json=payload, timeout=20)
         
-        print(f"🤖 Professor G: \"{action.get('chat_response', '')}\"")
-        print(f"   Action: {action.get('action_type')}")
-        print(f"   Emotion: {state.get('emotion')}")
-        
-        # Check if NPC is attacking
-        if action.get('action_type') == 'attack_target':
-            print(f"   ⚔️ ATTACKING: {action.get('target_name')}!")
-    else:
-        print(f"❌ Failed to chat: {response.status_code}")
+        if response.status_code == 200:
+            data = response.json()
+            action = data.get("action", {})
+            state = data.get("new_state", {})
+            
+            chat_response = action.get('chat_response', '')
+            action_type = action.get('action_type', 'unknown')
+            emotion = state.get('emotion', 'neutral')
+            
+            print(f"🤖 Professor G: \"{chat_response}\"")
+            print(f"   Action: {action_type}")
+            print(f"   Emotion: {emotion}")
+            
+            # Check if NPC is attacking
+            if action_type == 'attack_target':
+                target = action.get('target_name', 'unknown')
+                print(f"   ⚔️ ATTACKING: {target}!")
+        else:
+            print(f"❌ Failed to chat: {response.status_code}")
+            print(f"   Response: {response.text[:200]}")
+    except requests.exceptions.Timeout:
+        print(f"⏱️ Request timed out - AI is thinking too long")
+    except Exception as e:
+        print(f"❌ Error: {e}")
 
 def get_relationship(entity):
     """Get relationship details."""

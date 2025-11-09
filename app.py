@@ -146,6 +146,7 @@ def record_event():
                     "sentiment": rel.get_sentiment(),
                     "trust": rel.trust,
                     "fear": rel.fear,
+                    "affection": rel.affection,  # Added this!
                     "should_attack": memory.should_be_aggressive(entity),
                     "should_avoid": memory.should_avoid(entity)
                 }
@@ -479,6 +480,43 @@ def get_memory_summary():
 
 
 # Add to existing health check
+@app.route('/api/npc_state', methods=['GET'])
+def get_npc_state():
+    """
+    Get current NPC state (for backward compatibility with Phase 5).
+    Enhanced version with relationship info.
+    """
+    try:
+        npc_id = request.args.get('npc_id', 'Professor G')
+        memory = load_enhanced_memory(npc_id)
+        
+        # Get most recent state if available
+        recent_emotion = "neutral"
+        recent_objective = memory.current_goal
+        recent_memory = "No recent interactions"
+        
+        if memory.social_events:
+            last_event = memory.social_events[-1]
+            recent_memory = f"Last interaction with {last_event.entity_name}"
+        
+        return jsonify({
+            "npc_id": npc_id,
+            "emotion": recent_emotion,
+            "current_objective": recent_objective,
+            "recent_memory_summary": recent_memory,
+            "x": 0,
+            "z": 0,
+            "last_updated": datetime.now().isoformat(),
+            "memory_count": len(memory.combat_events) + len(memory.social_events),
+            "relationships": len(memory.relationships),
+            "current_threat": memory.current_threat
+        }), 200
+        
+    except Exception as e:
+        print(f"❌ Error getting NPC state: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({

@@ -40,9 +40,9 @@ class Relationship(BaseModel):
     """Relationship status with an entity."""
     entity_name: str
     entity_type: str  # "player", "mob"
-    trust: int = Field(0, ge=-100, le=100)  # -100 (enemy) to +100 (best friend)
-    fear: int = Field(0, ge=0, le=100)  # 0 (fearless) to 100 (terrified)
-    affection: int = Field(0, ge=0, le=100)  # 0 (indifferent) to 100 (loves)
+    trust: int = Field(default=0, ge=-100, le=100)  # -100 (enemy) to +100 (best friend)
+    fear: int = Field(default=0, ge=0, le=100)  # 0 (fearless) to 100 (terrified)
+    affection: int = Field(default=0, ge=0, le=100)  # 0 (indifferent) to 100 (loves)
     
     # Combat stats
     times_attacked_by: int = 0
