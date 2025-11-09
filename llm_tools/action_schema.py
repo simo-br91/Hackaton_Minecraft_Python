@@ -1,7 +1,7 @@
 """
 Pydantic models for NPC action schema and state management.
 Defines the contract between Minecraft Java mod and Python AI backend.
-Updated for Phase 4 with all action types.
+Updated with drop_items action.
 """
 
 from pydantic import BaseModel, Field
@@ -20,6 +20,7 @@ class Action(BaseModel):
         "emote",
         "give_item",
         "pickup_item",
+        "drop_items",
         "mine_block",
         "idle"
     ] = Field(..., description="Type of action the NPC should take")
@@ -50,14 +51,8 @@ class Action(BaseModel):
                     "z": 200
                 },
                 {
-                    "action_type": "follow",
-                    "chat_response": "I'll follow you!",
-                    "target_name": "Steve"
-                },
-                {
-                    "action_type": "emote",
-                    "chat_response": "*smiles warmly*",
-                    "target_name": "happy"
+                    "action_type": "drop_items",
+                    "chat_response": "Here are all my items!"
                 },
                 {
                     "action_type": "give_item",
