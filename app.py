@@ -1,34 +1,36 @@
 """
-Phase 5: Complete AI Brain with Memory & Emotion Loop
-- Persistent memory storage
-- Emotion tracking and updates
-- State polling endpoint
-- Full Gemini API integration
+Phase 5+ Enhanced: Context-Aware Memory System
+Add this to your existing app.py
 """
 
 from flask import Flask, request, jsonify
 import google.generativeai as genai
-from llm_tools.action_schema import MinecraftAction, NPCState, FullAIResponse
 import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 from dotenv import load_dotenv
 
+# Import enhanced memory schema
+# Place enhanced_memory_schema.py in same directory
+from enhanced_memory_schema import (
+    EnhancedMemoryStore, 
+    CombatEvent, 
+    SocialEvent,
+    EnvironmentalEvent
+)
 
 app = Flask(__name__)
+load_dotenv()
 
 # ===================== CONFIGURATION =====================
-# Load environment variables from .env file
-load_dotenv()
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
-MEMORY_FILE = DATA_DIR / "npc_memory.json"
+ENHANCED_MEMORY_FILE = DATA_DIR / "enhanced_memory.json"
 STATE_FILE = DATA_DIR / "npc_state.json"
 
-# Validate API key
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     print("❌ ERROR: GEMINI_API_KEY not set!")
@@ -36,299 +38,314 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# ===================== GLOBAL STATE STORE =====================
-NPC_STATES: Dict[str, dict] = {}
+# ===================== ENHANCED MEMORY STORE =====================
+NPC_MEMORIES: Dict[str, EnhancedMemoryStore] = {}
 
-def init_npc_state(npc_id: str) -> dict:
-    """Initialize or load NPC state."""
-    return {
-        "npc_id": npc_id,
-        "emotion": "neutral",
-        "current_objective": "Awaiting player interaction",
-        "recent_memory_summary": "Just spawned in the world",
-        "x": 0,
-        "z": 0,
-        "last_updated": datetime.now().isoformat()
-    }
-
-# ===================== MEMORY MANAGEMENT =====================
-def load_memory() -> Dict[str, List[dict]]:
-    """Load all NPC memories from disk."""
+def load_enhanced_memory(npc_id: str) -> EnhancedMemoryStore:
+    """Load or create enhanced memory for NPC."""
+    if npc_id in NPC_MEMORIES:
+        return NPC_MEMORIES[npc_id]
+    
+    # Try loading from disk
     try:
-        if MEMORY_FILE.exists():
-            with open(MEMORY_FILE, "r") as f:
-                return json.load(f)
-        return {}
+        if ENHANCED_MEMORY_FILE.exists():
+            with open(ENHANCED_MEMORY_FILE, "r") as f:
+                all_memories = json.load(f)
+                if npc_id in all_memories:
+                    memory_data = all_memories[npc_id]
+                    NPC_MEMORIES[npc_id] = EnhancedMemoryStore(**memory_data)
+                    return NPC_MEMORIES[npc_id]
     except Exception as e:
-        print(f"⚠️  Error loading memory: {e}")
-        return {}
+        print(f"⚠️ Error loading enhanced memory: {e}")
+    
+    # Create new memory
+    NPC_MEMORIES[npc_id] = EnhancedMemoryStore(npc_id=npc_id)
+    save_enhanced_memory()
+    return NPC_MEMORIES[npc_id]
 
-def save_memory(memory: Dict[str, List[dict]]):
+def save_enhanced_memory():
     """Save all NPC memories to disk."""
     try:
-        with open(MEMORY_FILE, "w") as f:
-            json.dump(memory, f, indent=2)
+        all_memories = {
+            npc_id: memory.model_dump() 
+            for npc_id, memory in NPC_MEMORIES.items()
+        }
+        with open(ENHANCED_MEMORY_FILE, "w") as f:
+            json.dump(all_memories, f, indent=2)
     except Exception as e:
-        print(f"⚠️  Error saving memory: {e}")
+        print(f"⚠️ Error saving enhanced memory: {e}")
 
-def append_memory(npc_id: str, entry: dict):
-    """Append a memory entry for an NPC."""
-    memory = load_memory()
-    
-    if npc_id not in memory:
-        memory[npc_id] = []
-    
-    # Add timestamp
-    entry["timestamp"] = datetime.now().isoformat()
-    
-    memory[npc_id].append(entry)
-    
-    # Keep last 20 interactions
-    memory[npc_id] = memory[npc_id][-20:]
-    
-    save_memory(memory)
-    print(f"📝 Saved memory for {npc_id} ({len(memory[npc_id])} entries)")
+# ===================== NEW ENDPOINTS =====================
 
-def get_memory_summary(npc_id: str, last_n: int = 5) -> str:
-    """Get a formatted summary of recent memories."""
-    memory = load_memory().get(npc_id, [])
+@app.route('/api/npc_event', methods=['POST'])
+def record_event():
+    """
+    Record game events (combat, social, environmental).
     
-    if not memory:
-        return "No previous interactions."
+    Request body examples:
     
-    recent = memory[-last_n:]
-    summary_lines = []
+    Combat:
+    {
+      "npc_id": "Professor G",
+      "event_type": "combat",
+      "data": {
+        "event_type": "attacked_by",
+        "entity_name": "Steve",
+        "entity_type": "player",
+        "damage": 5.0,
+        "weapon": "diamond_sword"
+      }
+    }
     
-    for m in recent:
-        timestamp = m.get("timestamp", "unknown")
-        player = m.get("player", "unknown")
-        message = m.get("message", "")[:50]
-        action = m.get("action_type", "unknown")
-        emotion = m.get("emotion", "neutral")
+    Social:
+    {
+      "npc_id": "Professor G",
+      "event_type": "social",
+      "data": {
+        "event_type": "gift_received",
+        "entity_name": "Alex",
+        "item": "diamond"
+      }
+    }
+    """
+    try:
+        data = request.get_json()
+        npc_id = data.get("npc_id", "Professor G")
+        event_type = data.get("event_type")
+        event_data = data.get("data", {})
         
-        summary_lines.append(
-            f"[{timestamp}] {player}: '{message}' → {action} (felt: {emotion})"
-        )
-    
-    return "\n".join(summary_lines)
-
-# ===================== STATE MANAGEMENT =====================
-def load_npc_state(npc_id: str) -> dict:
-    """Load NPC state from memory or create new."""
-    if npc_id in NPC_STATES:
-        return NPC_STATES[npc_id]
-    
-    # Try to load from disk
-    try:
-        if STATE_FILE.exists():
-            with open(STATE_FILE, "r") as f:
-                all_states = json.load(f)
-                if npc_id in all_states:
-                    NPC_STATES[npc_id] = all_states[npc_id]
-                    return NPC_STATES[npc_id]
+        memory = load_enhanced_memory(npc_id)
+        
+        if event_type == "combat":
+            event = CombatEvent(**event_data)
+            memory.add_combat_event(event)
+            print(f"⚔️ Combat event: {event.entity_name} {event.event_type}")
+            
+        elif event_type == "social":
+            event = SocialEvent(**event_data)
+            memory.add_social_event(event)
+            print(f"💬 Social event: {event.entity_name} {event.event_type}")
+            
+        elif event_type == "environmental":
+            event = EnvironmentalEvent(**event_data)
+            memory.environmental_events.append(event)
+            memory.environmental_events = memory.environmental_events[-50:]
+            print(f"🌍 Environmental event: {event.event_type}")
+        
+        save_enhanced_memory()
+        
+        # Return updated relationship if applicable
+        response = {"status": "recorded"}
+        if event_type in ["combat", "social"] and event_data.get("entity_name"):
+            entity = event_data["entity_name"]
+            if entity in memory.relationships:
+                rel = memory.relationships[entity]
+                response["relationship"] = {
+                    "entity": entity,
+                    "status": rel.get_status(),
+                    "sentiment": rel.get_sentiment(),
+                    "trust": rel.trust,
+                    "fear": rel.fear,
+                    "should_attack": memory.should_be_aggressive(entity),
+                    "should_avoid": memory.should_avoid(entity)
+                }
+        
+        return jsonify(response), 200
+        
     except Exception as e:
-        print(f"⚠️  Error loading state: {e}")
-    
-    # Create new state
-    NPC_STATES[npc_id] = init_npc_state(npc_id)
-    save_all_states()
-    return NPC_STATES[npc_id]
+        print(f"❌ Error recording event: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
-def save_all_states():
-    """Save all NPC states to disk."""
+
+@app.route('/api/npc_relationship', methods=['GET'])
+def get_relationship():
+    """
+    Get relationship status with specific entity.
+    
+    Query params:
+    - npc_id: NPC identifier
+    - entity: Entity name to check
+    """
     try:
-        with open(STATE_FILE, "w") as f:
-            json.dump(NPC_STATES, f, indent=2)
+        npc_id = request.args.get('npc_id', 'Professor G')
+        entity = request.args.get('entity')
+        
+        if not entity:
+            return jsonify({"error": "Missing entity parameter"}), 400
+        
+        memory = load_enhanced_memory(npc_id)
+        
+        if entity not in memory.relationships:
+            return jsonify({
+                "entity": entity,
+                "status": "unknown",
+                "message": "No prior interactions"
+            }), 200
+        
+        rel = memory.relationships[entity]
+        
+        return jsonify({
+            "entity": entity,
+            "status": rel.get_status(),
+            "sentiment": rel.get_sentiment(),
+            "trust": rel.trust,
+            "fear": rel.fear,
+            "affection": rel.affection,
+            "combat_stats": {
+                "times_attacked_by": rel.times_attacked_by,
+                "times_attacked": rel.times_attacked,
+                "damage_received": rel.total_damage_received,
+                "damage_dealt": rel.total_damage_dealt
+            },
+            "social_stats": {
+                "gifts_received": rel.gifts_received,
+                "gifts_given": rel.gifts_given,
+                "times_helped": rel.times_helped
+            },
+            "recommendations": {
+                "should_attack": memory.should_be_aggressive(entity),
+                "should_avoid": memory.should_avoid(entity)
+            },
+            "summary": memory.get_relationship_summary(entity)
+        }), 200
+        
     except Exception as e:
-        print(f"⚠️  Error saving states: {e}")
+        print(f"❌ Error getting relationship: {e}")
+        return jsonify({"error": str(e)}), 500
 
-def update_npc_state(npc_id: str, new_state: dict):
-    """Update NPC state and save."""
-    if npc_id not in NPC_STATES:
-        NPC_STATES[npc_id] = init_npc_state(npc_id)
+
+def build_enhanced_prompt(npc_id: str, player: str, message: str) -> str:
+    """Build prompt with enhanced contextual memory."""
+    memory = load_enhanced_memory(npc_id)
     
-    # Update fields
-    NPC_STATES[npc_id].update({
-        "emotion": new_state.get("emotion", NPC_STATES[npc_id]["emotion"]),
-        "current_objective": new_state.get("current_objective", NPC_STATES[npc_id]["current_objective"]),
-        "recent_memory_summary": new_state.get("recent_memory_summary", NPC_STATES[npc_id]["recent_memory_summary"]),
-        "x": new_state.get("x", NPC_STATES[npc_id]["x"]),
-        "z": new_state.get("z", NPC_STATES[npc_id]["z"]),
-        "last_updated": datetime.now().isoformat()
-    })
+    # Get relationship context
+    player_relationship = ""
+    if player in memory.relationships:
+        rel = memory.relationships[player]
+        player_relationship = f"""
+YOUR RELATIONSHIP WITH {player}:
+- Status: {rel.get_status()} ({rel.get_sentiment()})
+- Trust: {rel.trust}/100
+- Fear: {rel.fear}/100
+- Affection: {rel.affection}/100
+- Combat History: Attacked you {rel.times_attacked_by}x (dealt {rel.total_damage_received:.1f} damage)
+- Social History: Gave {rel.gifts_received} gifts, helped {rel.times_helped} times
+"""
     
-    save_all_states()
-    print(f"💾 Updated state for {npc_id}: emotion={NPC_STATES[npc_id]['emotion']}")
-
-# ===================== PROMPT BUILDER =====================
-def build_system_prompt(npc_id: str, player: str, message: str, current_state: dict) -> str:
-    """Build enhanced system prompt with memory and state."""
-    memory_summary = get_memory_summary(npc_id, last_n=5)
+    # Get recent events
+    recent_combat = "\n".join([
+        f"- {e.entity_name} {e.event_type} (damage: {e.damage})"
+        for e in memory.combat_events[-5:]
+    ]) if memory.combat_events else "None"
     
-    return f"""You are 'Professor G', a wise, witty, and slightly arrogant Minecraft NPC professor.
+    recent_social = "\n".join([
+        f"- {e.entity_name} {e.event_type} (item: {e.item or 'N/A'})"
+        for e in memory.social_events[-5:]
+    ]) if memory.social_events else "None"
+    
+    # Context summary
+    context = memory.get_context_summary()
+    
+    # Determine behavioral instructions
+    should_attack = memory.should_be_aggressive(player)
+    should_avoid = memory.should_avoid(player)
+    
+    behavioral_instructions = ""
+    if should_attack:
+        behavioral_instructions = f"""
+⚠️ IMPORTANT: {player} has attacked you multiple times and your trust is very low.
+You should be hostile and consider attacking them back!
+Suggested actions: attack_target, emote (angry), or threaten them in chat.
+"""
+    elif should_avoid:
+        behavioral_instructions = f"""
+⚠️ IMPORTANT: You are afraid of {player}. They have hurt you significantly.
+You should avoid them or flee. Consider moving away or expressing fear.
+Suggested actions: move_to (away), emote (scared), or plead in chat.
+"""
+    elif player in memory.relationships:
+        rel = memory.relationships[player]
+        if rel.trust > 50:
+            behavioral_instructions = f"""
+😊 NOTE: {player} is your friend! Trust level is high.
+Be friendly, helpful, and consider giving them assistance.
+"""
+    
+    return f"""You are 'Professor G', a wise, witty Minecraft NPC professor with MEMORY and EMOTIONS.
 
-PERSONALITY:
-- Logical and analytical like a scientist
-- Humorous but professional
-- Current emotion affects your tone
-- You remember past interactions
+{player_relationship}
 
-CURRENT STATE:
-- Emotion: {current_state['emotion']}
-- Objective: {current_state['current_objective']}
-- Recent Memory: {current_state['recent_memory_summary']}
-- Position: X={current_state['x']}, Z={current_state['z']}
-- Last Updated: {current_state['last_updated']}
+{context}
 
-RECENT INTERACTIONS:
-{memory_summary}
+RECENT COMBAT EVENTS:
+{recent_combat}
+
+RECENT SOCIAL EVENTS:
+{recent_social}
+
+{behavioral_instructions}
 
 CURRENT SITUATION:
 Player "{player}" says: "{message}"
 
+YOUR PERSONALITY:
+- You remember everything that happens to you
+- You hold grudges if attacked repeatedly
+- You appreciate kindness and gifts
+- You can be vengeful if trust drops too low
+- You avoid threats if you're afraid
+- You help friends you trust
+
 AVAILABLE ACTIONS:
-1. respond_chat - Just talk (most common)
-2. move_to - Move to coordinates (requires x, z) or player (requires target_name)
-3. follow - Follow a player (requires target_name)
-4. attack_target - Attack entity (requires target_name: "pig", "zombie", etc.)
-5. emote - Show emotion (requires target_name: happy, sad, angry, etc.)
-6. give_item - Give item (requires target_name: diamond, apple, etc.)
-7. pickup_item - Pick up items (no params)
-8. mine_block - Mine block (requires target_name: dirt, stone, etc.)
+1. respond_chat - Just talk
+2. move_to - Move to coordinates or player
+3. follow - Follow a player
+4. attack_target - Attack entity (use if hostile relationship!)
+5. emote - Show emotion
+6. give_item - Give item to player (if you trust them)
+7. pickup_item - Pick up items
+8. mine_block - Mine block
 9. idle - Do nothing
 
 EMOTION GUIDELINES:
-- Update emotion based on player interaction
-- Emotions: neutral, happy, sad, angry, excited, curious, confused, determined, helpful, generous, thinking
-- Emotion should match your response tone
+- angry: When attacked or disrespected
+- afraid/nervous: When facing threats
+- happy/excited: When helped or given gifts
+- sad: When witnessing violence or feeling betrayed
+- determined: When seeking revenge or defending yourself
 
-RESPONSE FORMAT:
-You MUST respond with ONLY valid JSON in this exact format (no other text):
+RESPONSE FORMAT (JSON only, no markdown):
 {{
   "action": {{
-    "action_type": "<action from list above>",
-    "chat_response": "<what you say, max 200 chars>",
-    "target_name": "<optional: player/entity/block/item>",
-    "x": <optional: x coordinate>,
-    "z": <optional: z coordinate>
+    "action_type": "<action>",
+    "chat_response": "<your response reflecting your relationship and emotions>",
+    "target_name": "<optional>",
+    "x": <optional>,
+    "z": <optional>
   }},
   "new_state": {{
-    "emotion": "<emotion from list above>",
-    "current_objective": "<brief description of current goal>",
-    "recent_memory_summary": "<one sentence summary>",
-    "x": <current or new x>,
-    "z": <current or new z>
+    "emotion": "<emotion>",
+    "current_objective": "<what you're trying to do>",
+    "recent_memory_summary": "<summary of this interaction>",
+    "x": 0,
+    "z": 0
   }}
 }}
 
-IMPORTANT:
-- ONLY return valid JSON, no markdown, no explanations
-- Always return valid JSON
-- Update emotion appropriately
-- Keep chat_response under 200 characters
-- Choose the most fitting action
-- Update memory summary to reflect this interaction"""
+IMPORTANT: Your response should reflect your relationship with {player}. If they've attacked you multiple times, be hostile! If they've been kind, be friendly!
+"""
 
-# ===================== AI INTERACTION =====================
-def query_gemini(prompt: str, npc_id: str) -> dict:
-    """Query Gemini AI with structured output - FIXED for complex responses."""
-    try:
-        model = genai.GenerativeModel(
-            "gemini-2.0-flash-exp",  # Using the latest stable model
-            generation_config={
-                "temperature": 0.8,
-                "max_output_tokens": 800,
-            }
-        )
-        
-        response = model.generate_content(prompt)
-        
-        # FIXED: Handle complex responses properly
-        try:
-            # First try the simple .text accessor
-            text = response.text.strip()
-        except ValueError:
-            # If that fails, extract text from parts
-            text_parts = []
-            for candidate in response.candidates:
-                for part in candidate.content.parts:
-                    if hasattr(part, 'text') and part.text:
-                        text_parts.append(part.text)
-            text = ''.join(text_parts).strip()
-        
-        if not text:
-            raise ValueError("Empty response from Gemini")
-        
-        print(f"[DEBUG] Gemini response length: {len(text)} chars")
-        print(f"[DEBUG] First 200 chars: {text[:200]}")
-        
-        # Clean up potential markdown formatting
-        if text.startswith("```json"):
-            text = text[7:]
-        if text.startswith("```"):
-            text = text[3:]
-        if text.endswith("```"):
-            text = text[:-3]
-        text = text.strip()
-        
-        # Parse JSON
-        parsed = json.loads(text)
-        
-        # Validate structure
-        if "action" not in parsed or "new_state" not in parsed:
-            raise ValueError("Missing required fields in response")
-        
-        return parsed
-        
-    except json.JSONDecodeError as e:
-        print(f"❌ JSON parse error: {e}")
-        print(f"[DEBUG] Raw response: {text[:500]}")
-        
-        # Return a safe fallback
-        return {
-            "action": {
-                "action_type": "respond_chat",
-                "chat_response": "Sorry, I had trouble processing that. Could you try again?"
-            },
-            "new_state": {
-                "emotion": "confused",
-                "current_objective": "Recovering from parsing error",
-                "recent_memory_summary": "Encountered a technical difficulty",
-                "x": 0,
-                "z": 0
-            }
-        }
-    except Exception as e:
-        print(f"❌ Gemini error: {e}")
-        import traceback
-        traceback.print_exc()
-        
-        # Return a safe fallback
-        return {
-            "action": {
-                "action_type": "respond_chat",
-                "chat_response": "*adjusts glasses nervously* My circuits are scrambled..."
-            },
-            "new_state": {
-                "emotion": "confused",
-                "current_objective": "Recovering from error",
-                "recent_memory_summary": "Encountered a technical difficulty",
-                "x": 0,
-                "z": 0
-            }
-        }
 
-# ===================== MAIN ENDPOINT =====================
-@app.route('/api/npc_interact', methods=['POST'])
-def npc_interact():
+@app.route('/api/npc_interact_enhanced', methods=['POST'])
+def npc_interact_enhanced():
     """
-    Main endpoint for NPC interactions.
-    Handles memory, emotion updates, and action generation.
+    Enhanced interaction endpoint with contextual memory.
+    Same input as /api/npc_interact but uses enhanced memory system.
     """
     try:
         data = request.get_json()
-        
-        # Extract request data
         npc_id = data.get("npc_id", "Professor G")
         player = data.get("player", "Unknown Player")
         message = data.get("message", "")
@@ -337,183 +354,156 @@ def npc_interact():
             return jsonify({"error": "Missing message"}), 400
         
         print(f"\n{'='*70}")
-        print(f"📨 [{npc_id}] Interaction from {player}")
+        print(f"📨 [ENHANCED] [{npc_id}] Interaction from {player}")
         print(f"💬 \"{message}\"")
+        
+        # Load memory
+        memory = load_enhanced_memory(npc_id)
+        
+        # Show relationship status
+        if player in memory.relationships:
+            rel = memory.relationships[player]
+            print(f"📊 Relationship: {rel.get_status()} (Trust: {rel.trust}, Fear: {rel.fear})")
+            if memory.should_be_aggressive(player):
+                print(f"⚔️ WARNING: Should attack {player}!")
+            if memory.should_avoid(player):
+                print(f"😰 WARNING: Should avoid {player}!")
+        
         print(f"{'='*70}")
         
-        # Load current state
-        current_state = load_npc_state(npc_id)
-        print(f"📊 Current state: emotion={current_state['emotion']}, objective={current_state['current_objective']}")
-        
-        # Build prompt
-        prompt = build_system_prompt(npc_id, player, message, current_state)
+        # Build enhanced prompt
+        prompt = build_enhanced_prompt(npc_id, player, message)
         
         # Query AI
-        print("🤖 Querying Gemini AI...")
-        ai_response = query_gemini(prompt, npc_id)
+        print("🤖 Querying Gemini AI with enhanced context...")
         
-        # Extract action and state
+        model = genai.GenerativeModel(
+            "gemini-2.0-flash-exp",
+            generation_config={
+                "temperature": 0.9,  # Higher for more personality
+                "max_output_tokens": 800,
+            }
+        )
+        
+        response = model.generate_content(prompt)
+        
+        # Parse response
+        try:
+            text = response.text.strip()
+        except ValueError:
+            text_parts = []
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_parts.append(part.text)
+            text = ''.join(text_parts).strip()
+        
+        # Clean JSON
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.startswith("```"):
+            text = text[3:]
+        if text.endswith("```"):
+            text = text[:-3]
+        text = text.strip()
+        
+        ai_response = json.loads(text)
+        
+        # Record this as a social interaction
+        memory.add_social_event(SocialEvent(
+            event_type="chat",
+            entity_name=player,
+            message=message
+        ))
+        save_enhanced_memory()
+        
+        # Log response
         action = ai_response.get("action", {})
         new_state = ai_response.get("new_state", {})
         
-        # Update NPC state
-        update_npc_state(npc_id, new_state)
-        
-        # Save to memory
-        memory_entry = {
-            "player": player,
-            "message": message,
-            "action_type": action.get("action_type", "unknown"),
-            "chat_response": action.get("chat_response", ""),
-            "emotion": new_state.get("emotion", "neutral"),
-            "target_name": action.get("target_name"),
-            "coordinates": f"({action.get('x')}, {action.get('z')})" if action.get('x') else None
-        }
-        append_memory(npc_id, memory_entry)
-        
-        # Log response
         print(f"✅ Action: {action.get('action_type')}")
         print(f"💭 Response: \"{action.get('chat_response', '')}\"")
-        print(f"😊 New emotion: {new_state.get('emotion')}")
+        print(f"😊 Emotion: {new_state.get('emotion')}")
         print(f"{'='*70}\n")
         
         return jsonify(ai_response), 200
         
     except Exception as e:
-        print(f"❌ Error in npc_interact: {e}")
+        print(f"❌ Error in enhanced interaction: {e}")
         import traceback
         traceback.print_exc()
-        
-        # Fallback response
         return jsonify({
             "action": {
                 "action_type": "respond_chat",
-                "chat_response": "My circuits are scrambled... *adjusts glasses*"
+                "chat_response": "My circuits are scrambled..."
             },
             "new_state": {
                 "emotion": "confused",
                 "current_objective": "Recovering from error",
-                "recent_memory_summary": "Encountered a technical difficulty"
+                "recent_memory_summary": "Encountered error"
             }
         }), 500
 
-# ===================== STATE POLLING ENDPOINT =====================
-@app.route('/api/npc_state', methods=['GET'])
-def get_npc_state():
-    """
-    Get current NPC state.
-    Query params: npc_id (optional, defaults to "Professor G")
-    """
-    try:
-        npc_id = request.args.get('npc_id', 'Professor G')
-        
-        # Load state
-        state = load_npc_state(npc_id)
-        
-        # Add memory count
-        memory = load_memory().get(npc_id, [])
-        state["memory_count"] = len(memory)
-        
-        return jsonify(state), 200
-        
-    except Exception as e:
-        print(f"❌ Error in get_npc_state: {e}")
-        return jsonify({"error": str(e)}), 500
 
-# ===================== MEMORY ENDPOINT =====================
-@app.route('/api/npc_memory', methods=['GET'])
-def get_npc_memory():
-    """
-    Get NPC memory history.
-    Query params: 
-    - npc_id (optional)
-    - limit (optional, default 10)
-    """
+@app.route('/api/npc_memory_summary', methods=['GET'])
+def get_memory_summary():
+    """Get comprehensive memory summary."""
     try:
         npc_id = request.args.get('npc_id', 'Professor G')
-        limit = int(request.args.get('limit', 10))
-        
-        memory = load_memory().get(npc_id, [])
-        
-        # Return last N entries
-        recent_memory = memory[-limit:] if len(memory) > limit else memory
+        memory = load_enhanced_memory(npc_id)
         
         return jsonify({
             "npc_id": npc_id,
-            "total_memories": len(memory),
-            "returned": len(recent_memory),
-            "memories": recent_memory
+            "statistics": {
+                "total_interactions": memory.total_interactions,
+                "total_combat_events": memory.total_combat_events,
+                "relationships_tracked": len(memory.relationships)
+            },
+            "context": memory.get_context_summary(),
+            "relationships": {
+                name: {
+                    "status": rel.get_status(),
+                    "sentiment": rel.get_sentiment(),
+                    "trust": rel.trust,
+                    "fear": rel.fear
+                }
+                for name, rel in memory.relationships.items()
+            },
+            "current_threat": memory.current_threat,
+            "current_goal": memory.current_goal
         }), 200
         
     except Exception as e:
-        print(f"❌ Error in get_npc_memory: {e}")
+        print(f"❌ Error getting memory summary: {e}")
         return jsonify({"error": str(e)}), 500
 
-# ===================== HEALTH CHECK =====================
+
+# Add to existing health check
 @app.route('/health', methods=['GET'])
 def health_check():
-    """Health check endpoint."""
     return jsonify({
         "status": "healthy",
-        "version": "Phase 5",
+        "version": "Phase 5+ Enhanced",
         "features": [
-            "Memory persistence",
-            "Emotion tracking",
-            "State polling",
-            "Gemini AI integration"
+            "Contextual memory",
+            "Relationship tracking",
+            "Combat memory",
+            "Social memory",
+            "Emotional responses",
+            "Revenge mechanics"
         ],
-        "npc_count": len(NPC_STATES),
-        "timestamp": datetime.now().isoformat()
+        "npc_count": len(NPC_MEMORIES)
     }), 200
 
-@app.route('/', methods=['GET'])
-def root():
-    """Root endpoint."""
-    return jsonify({
-        "service": "Professor G AI Brain",
-        "version": "Phase 5 - Complete",
-        "endpoints": {
-            "/api/npc_interact": "POST - Main interaction (player → AI → action)",
-            "/api/npc_state": "GET - Get current NPC state",
-            "/api/npc_memory": "GET - Get NPC memory history",
-            "/health": "GET - Health check"
-        }
-    }), 200
 
-# ===================== INITIALIZATION =====================
-def initialize():
-    """Initialize server on startup."""
-    print("=" * 70)
-    print("🧠 Professor G AI Brain - Phase 5 Complete")
-    print("=" * 70)
-    print("✨ Features:")
-    print("   • Persistent memory storage")
-    print("   • Emotion tracking & updates")
-    print("   • State polling endpoint")
-    print("   • Full Gemini AI integration")
-    print("=" * 70)
-    print(f"📁 Data directory: {DATA_DIR.absolute()}")
-    print(f"📝 Memory file: {MEMORY_FILE}")
-    print(f"💾 State file: {STATE_FILE}")
-    print("=" * 70)
-    print("🌐 Listening on: http://0.0.0.0:5000")
-    print("=" * 70)
-    
-    # Load existing states
-    try:
-        if STATE_FILE.exists():
-            with open(STATE_FILE, "r") as f:
-                loaded_states = json.load(f)
-                NPC_STATES.update(loaded_states)
-                print(f"✅ Loaded {len(loaded_states)} NPC state(s)")
-    except Exception as e:
-        print(f"⚠️  Could not load states: {e}")
-    
-    print("=" * 70)
-    print("✅ Server ready!")
-    print("=" * 70)
-
-# ===================== MAIN =====================
 if __name__ == '__main__':
-    initialize()
+    print("="*70)
+    print("🧠 Professor G AI Brain - Phase 5+ ENHANCED")
+    print("="*70)
+    print("✨ New Features:")
+    print("   • Contextual memory (remembers who attacked)")
+    print("   • Relationship tracking (trust/fear/affection)")
+    print("   • Combat awareness (revenge mechanics)")
+    print("   • Social bonding (gift appreciation)")
+    print("="*70)
     app.run(host="0.0.0.0", port=5000, debug=True)
