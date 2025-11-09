@@ -1,14 +1,18 @@
-# Phase 2 - Python Dependencies
-# Install with: pip install -r requirements.txt
+# Phase 5 - Python Dependencies
+# Complete requirements for memory & emotion loop
 
 # Web framework
 flask==3.0.0
 
-# Google Gemini API
+# Google Gemini API (correct package name)
 google-generativeai==0.3.2
 
 # Data validation
 pydantic==2.5.0
 
-# Optional but recommended
+# Environment variables
 python-dotenv==1.0.0
+
+# Optional but recommended
+# For better JSON handling
+simplejson==3.19.2

@@ -1,14 +1,13 @@
 """
-Pydantic models for NPC action schema and state management.
-Defines the contract between Minecraft Java mod and Python AI backend.
-Updated with drop_items action.
+Phase 5: Complete Action Schema with Memory & State
+Pydantic models for structured AI responses
 """
 
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 
-class Action(BaseModel):
-    """Represents an action the NPC should take in Minecraft."""
+class MinecraftAction(BaseModel):
+    """Action the NPC should perform in Minecraft."""
     action_type: Literal[
         "say",
         "respond_chat",
@@ -20,29 +19,37 @@ class Action(BaseModel):
         "emote",
         "give_item",
         "pickup_item",
-        "drop_items",
         "mine_block",
         "idle"
-    ] = Field(..., description="Type of action the NPC should take")
+    ] = Field(..., description="Type of action to perform")
     
     target_name: Optional[str] = Field(
-        None, 
-        description="Target player, entity, block, or item name (e.g., 'Steve', 'pig', 'oak_log', 'diamond')"
+        None,
+        description="Target player, entity, block, or item name"
     )
-    x: Optional[int] = Field(None, description="X coordinate for movement")
-    z: Optional[int] = Field(None, description="Z coordinate for movement")
+    
+    x: Optional[int] = Field(
+        None,
+        description="X coordinate for movement"
+    )
+    
+    z: Optional[int] = Field(
+        None,
+        description="Z coordinate for movement"
+    )
+    
     chat_response: Optional[str] = Field(
-        None, 
-        description="What the NPC should say in chat",
-        max_length=256
+        None,
+        max_length=256,
+        description="What the NPC says in chat"
     )
-
+    
     class Config:
         json_schema_extra = {
             "examples": [
                 {
                     "action_type": "respond_chat",
-                    "chat_response": "Hello there, adventurer!"
+                    "chat_response": "Hello adventurer!"
                 },
                 {
                     "action_type": "move_to",
@@ -51,77 +58,88 @@ class Action(BaseModel):
                     "z": 200
                 },
                 {
-                    "action_type": "drop_items",
-                    "chat_response": "Here are all my items!"
-                },
-                {
-                    "action_type": "give_item",
-                    "chat_response": "Here, take this!",
-                    "target_name": "diamond"
+                    "action_type": "follow",
+                    "chat_response": "I'll follow you!",
+                    "target_name": "Steve"
                 }
             ]
         }
 
 
 class NPCState(BaseModel):
-    """Represents the current state of an NPC."""
+    """Current state of the NPC."""
     emotion: Literal[
-        "happy", 
-        "neutral", 
-        "angry", 
-        "sad", 
-        "excited", 
+        "neutral",
+        "happy",
+        "sad",
+        "angry",
+        "excited",
         "curious",
         "confused",
         "determined",
         "helpful",
         "generous",
-        "thinking"
+        "thinking",
+        "calm",
+        "nervous"
     ] = Field(
         default="neutral",
         description="Current emotional state"
     )
-    current_objective: Optional[str] = Field(
-        None,
-        description="Current goal or objective the NPC is pursuing"
+    
+    current_objective: str = Field(
+        ...,
+        max_length=200,
+        description="Current goal or task the NPC is pursuing"
     )
-    recent_memory_summary: Optional[str] = Field(
-        None,
-        description="Brief summary of recent interactions"
+    
+    recent_memory_summary: str = Field(
+        ...,
+        max_length=300,
+        description="Brief summary of recent interaction"
     )
-    x: int = Field(default=0, description="Current X position")
-    z: int = Field(default=0, description="Current Z position")
-
+    
+    x: int = Field(
+        default=0,
+        description="Current X position"
+    )
+    
+    z: int = Field(
+        default=0,
+        description="Current Z position"
+    )
+    
     class Config:
         json_schema_extra = {
             "example": {
-                "emotion": "happy",
-                "current_objective": "Helping the player find diamonds",
-                "recent_memory_summary": "Player asked for help finding resources",
+                "emotion": "helpful",
+                "current_objective": "Assisting player with mining",
+                "recent_memory_summary": "Player asked for help finding diamonds",
                 "x": 100,
                 "z": -50
             }
         }
 
 
-class NPCResponse(BaseModel):
-    """Complete response from AI backend to Minecraft mod."""
-    action: Action
+class FullAIResponse(BaseModel):
+    """Complete AI response with action and new state."""
+    action: MinecraftAction
     new_state: NPCState
     
     class Config:
         json_schema_extra = {
             "example": {
                 "action": {
-                    "action_type": "respond_chat",
-                    "chat_response": "I'd be happy to help you find diamonds!"
+                    "action_type": "give_item",
+                    "chat_response": "Here's a diamond for you!",
+                    "target_name": "diamond"
                 },
                 "new_state": {
-                    "emotion": "helpful",
-                    "current_objective": "Assisting player with mining",
-                    "recent_memory_summary": "Player requested help with diamonds",
+                    "emotion": "generous",
+                    "current_objective": "Helping player with resources",
+                    "recent_memory_summary": "Gave diamond to player",
                     "x": 100,
-                    "z": -50
+                    "z": 200
                 }
             }
         }
