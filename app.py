@@ -218,13 +218,13 @@ def delete_npc():
 
 
 def build_enhanced_prompt(npc_id: str, player: str, message: str) -> str:
-    """Build prompt with enhanced contextual memory."""
+    """Build prompt with enhanced contextual memory and potion guidance."""
     memory = load_enhanced_memory(npc_id)
-    
-    # Extract NPC display name from ID (e.g., "Professor Redstone_abc123" -> "Professor Redstone")
-    npc_display_name = npc_id.split('_')[0] + " " + npc_id.split('_')[1] if '_' in npc_id else npc_id
-    
-    # Get relationship context
+
+    # Extract NPC display name from ID (e.g., "Professor Diamond_abc123" -> "Professor Diamond")
+    npc_display_name = npc_id.split('_')[0]
+
+    # Relationship context
     player_relationship = ""
     if player in memory.relationships:
         rel = memory.relationships[player]
@@ -237,25 +237,25 @@ YOUR RELATIONSHIP WITH {player}:
 - Combat History: Attacked you {rel.times_attacked_by}x (dealt {rel.total_damage_received:.1f} damage)
 - Social History: Gave {rel.gifts_received} gifts, helped {rel.times_helped} times
 """
-    
-    # Get recent events
+
+    # Recent events
     recent_combat = "\n".join([
         f"- {e.entity_name} {e.event_type} (damage: {e.damage})"
         for e in memory.combat_events[-5:]
     ]) if memory.combat_events else "None"
-    
+
     recent_social = "\n".join([
         f"- {e.entity_name} {e.event_type} (item: {e.item or 'N/A'})"
         for e in memory.social_events[-5:]
     ]) if memory.social_events else "None"
-    
+
     # Context summary
     context = memory.get_context_summary()
-    
-    # Determine behavioral instructions
+
+    # Behavioral instructions
     should_attack = memory.should_be_aggressive(player)
     should_avoid = memory.should_avoid(player)
-    
+
     behavioral_instructions = ""
     if should_attack:
         behavioral_instructions = f"""
@@ -276,15 +276,34 @@ Suggested actions: move_to (away), emote (scared), or plead in chat.
 😊 NOTE: {player} is your friend! Trust level is high.
 Be friendly, helpful, and consider giving them assistance.
 """
-    
-    # Handle autonomous greetings
+
+    # Autonomous greetings
     greeting_context = ""
     if player == "SYSTEM" and "notice" in message.lower():
         greeting_context = """
 NOTE: You've detected a player nearby. This is an autonomous greeting!
 Be natural, friendly, and introduce yourself briefly.
 """
-    
+
+    # --- NEW: Potion guidance block ---
+    potion_guidance = """
+POTION SYSTEM:
+- You can drink potions from your inventory
+- Use "drink_potion" action with potion type (e.g., "healing", "strength", "speed")
+- You should drink healing potions when hurt or in danger
+- You can drink buff potions before combat (strength, speed)
+- You can drink potions for fun or roleplay (night vision, water breathing, etc.)
+- After drinking, you'll get the potion effects!
+
+When to drink potions:
+- If a player gives you a potion and asks you to drink it → DO IT!
+- If you're hurt and have healing potions → drink them
+- If you're about to fight → drink strength/speed potions
+- If player mentions you look hurt → consider drinking healing potion
+- You can suggest drinking potions in conversation
+"""
+
+    # Final prompt
     return f"""You are '{npc_display_name}', a wise, witty Minecraft NPC professor with MEMORY and EMOTIONS.
 
 {player_relationship}
@@ -301,6 +320,8 @@ RECENT SOCIAL EVENTS:
 
 {greeting_context}
 
+{potion_guidance}
+
 CURRENT SITUATION:
 Player "{player}" says: "{message}"
 
@@ -313,6 +334,8 @@ YOUR PERSONALITY:
 - You help friends you trust
 - You are curious and enjoy meeting new people
 - You sometimes initiate conversations when players are nearby
+- You enjoy drinking potions and experiencing their effects
+- You're smart enough to drink healing potions when hurt
 
 AVAILABLE ACTIONS:
 1. respond_chat - Just talk
@@ -323,12 +346,13 @@ AVAILABLE ACTIONS:
 6. give_item - Give item to player (if you trust them)
 7. pickup_item - Pick up items
 8. mine_block - Mine block
-9. idle - Do nothing
+9. drink_potion - Drink a potion! (healing/strength/speed/any potion name)
+10. idle - Do nothing
 
 EMOTION GUIDELINES:
 - angry: When attacked or disrespected
 - afraid/nervous: When facing threats
-- happy/excited: When helped or given gifts
+- happy/excited: When helped or given gifts, or after drinking fun potions
 - sad: When witnessing violence or feeling betrayed
 - determined: When seeking revenge or defending yourself
 - curious: When meeting new people or exploring
@@ -338,7 +362,7 @@ RESPONSE FORMAT (JSON only, no markdown):
   "action": {{
     "action_type": "<action>",
     "chat_response": "<your response reflecting your relationship and emotions>",
-    "target_name": "<optional>",
+    "target_name": "<optional - for drink_potion, specify potion type like 'healing' or leave empty for any potion>",
     "x": <optional>,
     "z": <optional>
   }},
@@ -351,7 +375,13 @@ RESPONSE FORMAT (JSON only, no markdown):
   }}
 }}
 
-IMPORTANT: Your response should reflect your relationship with {player}. If they've attacked you multiple times, be hostile! If they've been kind, be friendly! If this is a first meeting, be curious!
+IMPORTANT: 
+- Your response should reflect your relationship with {player}
+- If they've attacked you multiple times, be hostile!
+- If they've been kind, be friendly!
+- If someone gives you a potion and asks you to drink it, you should do it!
+- If you're hurt (and player mentions it), consider drinking a healing potion
+- You can be playful and drink potions for fun too!
 """
 
 

@@ -1,5 +1,5 @@
 """
-Phase 5: Complete Action Schema with Memory & State
+Phase 5+: Complete Action Schema with Memory & State + Potion System
 Pydantic models for structured AI responses
 """
 
@@ -20,12 +20,13 @@ class MinecraftAction(BaseModel):
         "give_item",
         "pickup_item",
         "mine_block",
+        "drink_potion",
         "idle"
     ] = Field(..., description="Type of action to perform")
     
     target_name: Optional[str] = Field(
         None,
-        description="Target player, entity, block, or item name"
+        description="Target player, entity, block, item name, or potion type"
     )
     
     x: Optional[int] = Field(
@@ -61,6 +62,11 @@ class MinecraftAction(BaseModel):
                     "action_type": "follow",
                     "chat_response": "I'll follow you!",
                     "target_name": "Steve"
+                },
+                {
+                    "action_type": "drink_potion",
+                    "chat_response": "*drinks healing potion* That's better!",
+                    "target_name": "healing"
                 }
             ]
         }
@@ -81,7 +87,10 @@ class NPCState(BaseModel):
         "generous",
         "thinking",
         "calm",
-        "nervous"
+        "nervous",
+        "afraid",
+        "hurt",
+        "relieved"
     ] = Field(
         default="neutral",
         description="Current emotional state"
@@ -130,14 +139,14 @@ class FullAIResponse(BaseModel):
         json_schema_extra = {
             "example": {
                 "action": {
-                    "action_type": "give_item",
-                    "chat_response": "Here's a diamond for you!",
-                    "target_name": "diamond"
+                    "action_type": "drink_potion",
+                    "chat_response": "*drinks healing potion* Much better!",
+                    "target_name": "healing"
                 },
                 "new_state": {
-                    "emotion": "generous",
-                    "current_objective": "Helping player with resources",
-                    "recent_memory_summary": "Gave diamond to player",
+                    "emotion": "relieved",
+                    "current_objective": "Recovering from injuries",
+                    "recent_memory_summary": "Drank healing potion after being hurt",
                     "x": 100,
                     "z": 200
                 }
