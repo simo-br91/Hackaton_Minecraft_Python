@@ -1,6 +1,6 @@
 """
-Phase 5+ Enhanced: Context-Aware Memory System
-Add this to your existing app.py
+Phase 5+ Enhanced: Multiple NPCs with Unique Identities
+Each NPC has unique memory and personality
 """
 
 from flask import Flask, request, jsonify
@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Dict
 from dotenv import load_dotenv
 
-# Import enhanced memory schema
-# Place enhanced_memory_schema.py in same directory
 from enhanced_memory_schema import (
     EnhancedMemoryStore, 
     CombatEvent, 
@@ -29,7 +27,6 @@ DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
 
 ENHANCED_MEMORY_FILE = DATA_DIR / "enhanced_memory.json"
-STATE_FILE = DATA_DIR / "npc_state.json"
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
@@ -38,11 +35,11 @@ if not GEMINI_API_KEY:
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-# ===================== ENHANCED MEMORY STORE =====================
+# ===================== MULTIPLE NPC MEMORY STORE =====================
 NPC_MEMORIES: Dict[str, EnhancedMemoryStore] = {}
 
 def load_enhanced_memory(npc_id: str) -> EnhancedMemoryStore:
-    """Load or create enhanced memory for NPC."""
+    """Load or create enhanced memory for specific NPC."""
     if npc_id in NPC_MEMORIES:
         return NPC_MEMORIES[npc_id]
     
@@ -54,13 +51,15 @@ def load_enhanced_memory(npc_id: str) -> EnhancedMemoryStore:
                 if npc_id in all_memories:
                     memory_data = all_memories[npc_id]
                     NPC_MEMORIES[npc_id] = EnhancedMemoryStore(**memory_data)
+                    print(f"📂 Loaded existing memory for {npc_id}")
                     return NPC_MEMORIES[npc_id]
     except Exception as e:
         print(f"⚠️ Error loading enhanced memory: {e}")
     
-    # Create new memory
+    # Create new memory for this NPC
     NPC_MEMORIES[npc_id] = EnhancedMemoryStore(npc_id=npc_id)
     save_enhanced_memory()
+    print(f"✨ Created fresh memory for {npc_id}")
     return NPC_MEMORIES[npc_id]
 
 def save_enhanced_memory():
@@ -75,62 +74,46 @@ def save_enhanced_memory():
     except Exception as e:
         print(f"⚠️ Error saving enhanced memory: {e}")
 
-# ===================== NEW ENDPOINTS =====================
+def delete_npc_memory(npc_id: str):
+    """Delete NPC memory when it dies."""
+    if npc_id in NPC_MEMORIES:
+        del NPC_MEMORIES[npc_id]
+        save_enhanced_memory()
+        print(f"🗑️ Deleted memory for {npc_id}")
+        return True
+    return False
+
+# ===================== ENDPOINTS =====================
 
 @app.route('/api/npc_event', methods=['POST'])
 def record_event():
-    """
-    Record game events (combat, social, environmental).
-    
-    Request body examples:
-    
-    Combat:
-    {
-      "npc_id": "Professor G",
-      "event_type": "combat",
-      "data": {
-        "event_type": "attacked_by",
-        "entity_name": "Steve",
-        "entity_type": "player",
-        "damage": 5.0,
-        "weapon": "diamond_sword"
-      }
-    }
-    
-    Social:
-    {
-      "npc_id": "Professor G",
-      "event_type": "social",
-      "data": {
-        "event_type": "gift_received",
-        "entity_name": "Alex",
-        "item": "diamond"
-      }
-    }
-    """
+    """Record game events (combat, social, environmental)."""
     try:
         data = request.get_json()
-        npc_id = data.get("npc_id", "Professor G")
+        npc_id = data.get("npc_id")
         event_type = data.get("event_type")
         event_data = data.get("data", {})
+        
+        if not npc_id:
+            return jsonify({"error": "Missing npc_id"}), 400
         
         memory = load_enhanced_memory(npc_id)
         
         if event_type == "combat":
             event = CombatEvent(**event_data)
             memory.add_combat_event(event)
-            print(f"⚔️ Combat event: {event.entity_name} {event.event_type}")
+            print(f"⚔️ [{npc_id}] Combat event: {event.entity_name} {event.event_type}")
             
         elif event_type == "social":
             event = SocialEvent(**event_data)
             memory.add_social_event(event)
-            print(f"💬 Social event: {event.entity_name} {event.event_type}")
+            print(f"💬 [{npc_id}] Social event: {event.entity_name} {event.event_type}")
             
         elif event_type == "environmental":
             event = EnvironmentalEvent(**event_data)
             memory.environmental_events.append(event)
             memory.environmental_events = memory.environmental_events[-50:]
-            print(f"🌍 Environmental event: {event.event_type}")
+            print(f"🌍 [{npc_id}] Environmental event: {event.event_type}")
         
         save_enhanced_memory()
         
@@ -146,7 +129,7 @@ def record_event():
                     "sentiment": rel.get_sentiment(),
                     "trust": rel.trust,
                     "fear": rel.fear,
-                    "affection": rel.affection,  # Added this!
+                    "affection": rel.affection,
                     "should_attack": memory.should_be_aggressive(entity),
                     "should_avoid": memory.should_avoid(entity)
                 }
@@ -162,19 +145,13 @@ def record_event():
 
 @app.route('/api/npc_relationship', methods=['GET'])
 def get_relationship():
-    """
-    Get relationship status with specific entity.
-    
-    Query params:
-    - npc_id: NPC identifier
-    - entity: Entity name to check
-    """
+    """Get relationship status with specific entity."""
     try:
-        npc_id = request.args.get('npc_id', 'Professor G')
+        npc_id = request.args.get('npc_id')
         entity = request.args.get('entity')
         
-        if not entity:
-            return jsonify({"error": "Missing entity parameter"}), 400
+        if not npc_id or not entity:
+            return jsonify({"error": "Missing npc_id or entity parameter"}), 400
         
         memory = load_enhanced_memory(npc_id)
         
@@ -217,9 +194,35 @@ def get_relationship():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/npc_delete', methods=['POST'])
+def delete_npc():
+    """Delete NPC memory (called when NPC dies)."""
+    try:
+        data = request.get_json()
+        npc_id = data.get("npc_id")
+        
+        if not npc_id:
+            return jsonify({"error": "Missing npc_id"}), 400
+        
+        success = delete_npc_memory(npc_id)
+        
+        if success:
+            print(f"💀 [{npc_id}] Memory cleared on death")
+            return jsonify({"status": "deleted", "npc_id": npc_id}), 200
+        else:
+            return jsonify({"status": "not_found", "npc_id": npc_id}), 404
+            
+    except Exception as e:
+        print(f"❌ Error deleting NPC: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 def build_enhanced_prompt(npc_id: str, player: str, message: str) -> str:
     """Build prompt with enhanced contextual memory."""
     memory = load_enhanced_memory(npc_id)
+    
+    # Extract NPC display name from ID (e.g., "Professor Redstone_abc123" -> "Professor Redstone")
+    npc_display_name = npc_id.split('_')[0] + " " + npc_id.split('_')[1] if '_' in npc_id else npc_id
     
     # Get relationship context
     player_relationship = ""
@@ -274,7 +277,15 @@ Suggested actions: move_to (away), emote (scared), or plead in chat.
 Be friendly, helpful, and consider giving them assistance.
 """
     
-    return f"""You are 'Professor G', a wise, witty Minecraft NPC professor with MEMORY and EMOTIONS.
+    # Handle autonomous greetings
+    greeting_context = ""
+    if player == "SYSTEM" and "notice" in message.lower():
+        greeting_context = """
+NOTE: You've detected a player nearby. This is an autonomous greeting!
+Be natural, friendly, and introduce yourself briefly.
+"""
+    
+    return f"""You are '{npc_display_name}', a wise, witty Minecraft NPC professor with MEMORY and EMOTIONS.
 
 {player_relationship}
 
@@ -288,6 +299,8 @@ RECENT SOCIAL EVENTS:
 
 {behavioral_instructions}
 
+{greeting_context}
+
 CURRENT SITUATION:
 Player "{player}" says: "{message}"
 
@@ -298,6 +311,8 @@ YOUR PERSONALITY:
 - You can be vengeful if trust drops too low
 - You avoid threats if you're afraid
 - You help friends you trust
+- You are curious and enjoy meeting new people
+- You sometimes initiate conversations when players are nearby
 
 AVAILABLE ACTIONS:
 1. respond_chat - Just talk
@@ -316,6 +331,7 @@ EMOTION GUIDELINES:
 - happy/excited: When helped or given gifts
 - sad: When witnessing violence or feeling betrayed
 - determined: When seeking revenge or defending yourself
+- curious: When meeting new people or exploring
 
 RESPONSE FORMAT (JSON only, no markdown):
 {{
@@ -335,21 +351,21 @@ RESPONSE FORMAT (JSON only, no markdown):
   }}
 }}
 
-IMPORTANT: Your response should reflect your relationship with {player}. If they've attacked you multiple times, be hostile! If they've been kind, be friendly!
+IMPORTANT: Your response should reflect your relationship with {player}. If they've attacked you multiple times, be hostile! If they've been kind, be friendly! If this is a first meeting, be curious!
 """
 
 
 @app.route('/api/npc_interact_enhanced', methods=['POST'])
 def npc_interact_enhanced():
-    """
-    Enhanced interaction endpoint with contextual memory.
-    Same input as /api/npc_interact but uses enhanced memory system.
-    """
+    """Enhanced interaction endpoint with contextual memory for multiple NPCs."""
     try:
         data = request.get_json()
-        npc_id = data.get("npc_id", "Professor G")
+        npc_id = data.get("npc_id")
         player = data.get("player", "Unknown Player")
         message = data.get("message", "")
+        
+        if not npc_id:
+            return jsonify({"error": "Missing npc_id"}), 400
         
         if not message:
             return jsonify({"error": "Missing message"}), 400
@@ -362,7 +378,7 @@ def npc_interact_enhanced():
         memory = load_enhanced_memory(npc_id)
         
         # Show relationship status
-        if player in memory.relationships:
+        if player in memory.relationships and player != "SYSTEM":
             rel = memory.relationships[player]
             print(f"📊 Relationship: {rel.get_status()} (Trust: {rel.trust}, Fear: {rel.fear})")
             if memory.should_be_aggressive(player):
@@ -381,7 +397,7 @@ def npc_interact_enhanced():
         model = genai.GenerativeModel(
             "gemini-2.0-flash-exp",
             generation_config={
-                "temperature": 0.9,  # Higher for more personality
+                "temperature": 0.9,
                 "max_output_tokens": 800,
             }
         )
@@ -410,13 +426,14 @@ def npc_interact_enhanced():
         
         ai_response = json.loads(text)
         
-        # Record this as a social interaction
-        memory.add_social_event(SocialEvent(
-            event_type="chat",
-            entity_name=player,
-            message=message
-        ))
-        save_enhanced_memory()
+        # Record this as a social interaction (unless it's autonomous SYSTEM greeting)
+        if player != "SYSTEM":
+            memory.add_social_event(SocialEvent(
+                event_type="chat",
+                entity_name=player,
+                message=message
+            ))
+            save_enhanced_memory()
         
         # Log response
         action = ai_response.get("action", {})
@@ -450,7 +467,11 @@ def npc_interact_enhanced():
 def get_memory_summary():
     """Get comprehensive memory summary."""
     try:
-        npc_id = request.args.get('npc_id', 'Professor G')
+        npc_id = request.args.get('npc_id')
+        
+        if not npc_id:
+            return jsonify({"error": "Missing npc_id"}), 400
+        
         memory = load_enhanced_memory(npc_id)
         
         return jsonify({
@@ -479,18 +500,17 @@ def get_memory_summary():
         return jsonify({"error": str(e)}), 500
 
 
-# Add to existing health check
 @app.route('/api/npc_state', methods=['GET'])
 def get_npc_state():
-    """
-    Get current NPC state (for backward compatibility with Phase 5).
-    Enhanced version with relationship info.
-    """
+    """Get current NPC state (backward compatibility)."""
     try:
-        npc_id = request.args.get('npc_id', 'Professor G')
+        npc_id = request.args.get('npc_id')
+        
+        if not npc_id:
+            return jsonify({"error": "Missing npc_id"}), 400
+        
         memory = load_enhanced_memory(npc_id)
         
-        # Get most recent state if available
         recent_emotion = "neutral"
         recent_objective = memory.current_goal
         recent_memory = "No recent interactions"
@@ -521,8 +541,10 @@ def get_npc_state():
 def health_check():
     return jsonify({
         "status": "healthy",
-        "version": "Phase 5+ Enhanced",
+        "version": "Phase 5+ Enhanced - Multiple NPCs",
         "features": [
+            "Multiple unique NPCs",
+            "Autonomous behavior",
             "Contextual memory",
             "Relationship tracking",
             "Combat memory",
@@ -536,12 +558,12 @@ def health_check():
 
 if __name__ == '__main__':
     print("="*70)
-    print("🧠 Professor G AI Brain - Phase 5+ ENHANCED")
+    print("🧠 Professor G AI Brain - Phase 5+ ENHANCED (Multiple NPCs)")
     print("="*70)
     print("✨ New Features:")
-    print("   • Contextual memory (remembers who attacked)")
-    print("   • Relationship tracking (trust/fear/affection)")
-    print("   • Combat awareness (revenge mechanics)")
-    print("   • Social bonding (gift appreciation)")
+    print("   • Multiple unique NPCs with separate memories")
+    print("   • Autonomous NPC behavior (initiates conversations)")
+    print("   • Memory cleared on NPC death")
+    print("   • Each NPC has unique personality and relationships")
     print("="*70)
     app.run(host="0.0.0.0", port=5000, debug=True)
