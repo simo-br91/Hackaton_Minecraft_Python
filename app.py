@@ -231,11 +231,10 @@ IMPORTANT:
 
 # ===================== AI INTERACTION =====================
 def query_gemini(prompt: str, npc_id: str) -> dict:
-    """Query Gemini AI with structured output."""
+    """Query Gemini AI with structured output - FIXED for complex responses."""
     try:
-        # ✅ FIXED: Removed response_mime_type from generation_config
         model = genai.GenerativeModel(
-            "gemini-2.5-pro",
+            "gemini-2.0-flash-exp",  # Using the latest stable model
             generation_config={
                 "temperature": 0.8,
                 "max_output_tokens": 800,
@@ -243,17 +242,33 @@ def query_gemini(prompt: str, npc_id: str) -> dict:
         )
         
         response = model.generate_content(prompt)
-        text = response.text.strip()
+        
+        # FIXED: Handle complex responses properly
+        try:
+            # First try the simple .text accessor
+            text = response.text.strip()
+        except ValueError:
+            # If that fails, extract text from parts
+            text_parts = []
+            for candidate in response.candidates:
+                for part in candidate.content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        text_parts.append(part.text)
+            text = ''.join(text_parts).strip()
+        
+        if not text:
+            raise ValueError("Empty response from Gemini")
         
         print(f"[DEBUG] Gemini response length: {len(text)} chars")
+        print(f"[DEBUG] First 200 chars: {text[:200]}")
         
         # Clean up potential markdown formatting
         if text.startswith("```json"):
-            text = text[7:]  # Remove ```json
+            text = text[7:]
         if text.startswith("```"):
-            text = text[3:]  # Remove ```
+            text = text[3:]
         if text.endswith("```"):
-            text = text[:-3]  # Remove trailing ```
+            text = text[:-3]
         text = text.strip()
         
         # Parse JSON
@@ -267,11 +282,41 @@ def query_gemini(prompt: str, npc_id: str) -> dict:
         
     except json.JSONDecodeError as e:
         print(f"❌ JSON parse error: {e}")
-        print(f"[DEBUG] Raw response: {text[:300]}")
-        raise
+        print(f"[DEBUG] Raw response: {text[:500]}")
+        
+        # Return a safe fallback
+        return {
+            "action": {
+                "action_type": "respond_chat",
+                "chat_response": "Sorry, I had trouble processing that. Could you try again?"
+            },
+            "new_state": {
+                "emotion": "confused",
+                "current_objective": "Recovering from parsing error",
+                "recent_memory_summary": "Encountered a technical difficulty",
+                "x": 0,
+                "z": 0
+            }
+        }
     except Exception as e:
         print(f"❌ Gemini error: {e}")
-        raise
+        import traceback
+        traceback.print_exc()
+        
+        # Return a safe fallback
+        return {
+            "action": {
+                "action_type": "respond_chat",
+                "chat_response": "*adjusts glasses nervously* My circuits are scrambled..."
+            },
+            "new_state": {
+                "emotion": "confused",
+                "current_objective": "Recovering from error",
+                "recent_memory_summary": "Encountered a technical difficulty",
+                "x": 0,
+                "z": 0
+            }
+        }
 
 # ===================== MAIN ENDPOINT =====================
 @app.route('/api/npc_interact', methods=['POST'])
