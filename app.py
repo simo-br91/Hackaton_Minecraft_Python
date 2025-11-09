@@ -203,7 +203,7 @@ EMOTION GUIDELINES:
 - Emotion should match your response tone
 
 RESPONSE FORMAT:
-Return valid JSON with this structure:
+You MUST respond with ONLY valid JSON in this exact format (no other text):
 {{
   "action": {{
     "action_type": "<action from list above>",
@@ -222,6 +222,7 @@ Return valid JSON with this structure:
 }}
 
 IMPORTANT:
+- ONLY return valid JSON, no markdown, no explanations
 - Always return valid JSON
 - Update emotion appropriately
 - Keep chat_response under 200 characters
@@ -232,12 +233,12 @@ IMPORTANT:
 def query_gemini(prompt: str, npc_id: str) -> dict:
     """Query Gemini AI with structured output."""
     try:
+        # ✅ FIXED: Removed response_mime_type from generation_config
         model = genai.GenerativeModel(
-            "gemini-1.5-flash",
+            "gemini-2.5-pro",
             generation_config={
                 "temperature": 0.8,
                 "max_output_tokens": 800,
-                "response_mime_type": "application/json"
             }
         )
         
@@ -245,6 +246,15 @@ def query_gemini(prompt: str, npc_id: str) -> dict:
         text = response.text.strip()
         
         print(f"[DEBUG] Gemini response length: {len(text)} chars")
+        
+        # Clean up potential markdown formatting
+        if text.startswith("```json"):
+            text = text[7:]  # Remove ```json
+        if text.startswith("```"):
+            text = text[3:]  # Remove ```
+        if text.endswith("```"):
+            text = text[:-3]  # Remove trailing ```
+        text = text.strip()
         
         # Parse JSON
         parsed = json.loads(text)
